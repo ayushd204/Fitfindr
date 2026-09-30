@@ -23,7 +23,7 @@ from generate import ModelUnavailable
 
 def new_session(query: str, wardrobe: dict) -> dict:
     """
-    A fresh session for one user interaction.
+    A fresh session for one user interaction. ; a new session dictionary which holds the agents memory for a single run
 
     The session is the single source of truth for a run. Every tool result goes
     in here, and the next tool reads it back out.
@@ -32,6 +32,8 @@ def new_session(query: str, wardrobe: dict) -> dict:
     and you would not be able to test it — you can't print a variable you have
     already overwritten. Going through the session is what makes the state
     visible, and unit 4 has you write a criterion about exactly that.
+
+    the user query, parsed inputs, search results, selected item, wardrobe, outfit suggestion, fit card, and any error message get in here; 
 
     Add fields if you need them.
     """
@@ -107,8 +109,112 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     """
     session = new_session(query, wardrobe)
 
-    # TODO: delete these two lines and build the loop.
-    session["error"] = "The planning loop isn't built yet — see the TODO in agent.py."
+    def parse_query(text: str) -> dict:
+        """Turn the free-text request into inputs for the search tool."""
+        import re
+
+        size_match = re.search(
+            r"(?<![A-Za-z0-9])(?:XXS|XXL|XS|XL|S|M|L)(?![A-Za-z0-9])",
+            text,
+            flags=re.IGNORECASE,
+        )
+        price_match = re.search(
+            r"(?:under|below|less than|up to|max(?:imum)?)\s*\$?\s*(\d+(?:\.\d{1,2})?)"
+            r"|\$\s*(\d+(?:\.\d{1,2})?)",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        size = size_match.group(0).upper() if size_match else None
+        price_text = (
+            next((value for value in price_match.groups() if value), None)
+            if price_match
+            else None
+        )
+        max_price = float(price_text) if price_text else None
+
+        # Strip constraints and request filler, leaving searchable keywords.
+        description = text
+        if size_match:
+            description = (
+                description[:size_match.start()]
+                + " "
+                + description[size_match.end():]
+            )
+        if price_match:
+            description = (
+                description[:price_match.start()]
+                + " "
+                + description[price_match.end():]
+            )
+        description = re.sub(
+            r"\b(?:looking for|i am looking for|i'm looking for|find me|find|want|please|size)\b",
+            " ",
+            description,
+            flags=re.IGNORECASE,
+        )
+        description = re.sub(r"[^\w\s'-]", " ", description)
+        description = " ".join(description.split()).strip(" -'") or text.strip()
+
+        return {
+            "description": description,
+            "size": size,
+            "max_price": max_price,
+        }
+
+    def nothing_found_message(parsed: dict) -> str:
+        """Explain which search constraints the user could loosen."""
+        suggestions = ["try broader words for the item"]
+        if parsed["size"]:
+            suggestions.append("drop the size or try a nearby one")
+        if parsed["max_price"] is not None:
+            suggestions.append(
+                f"raise the price ceiling above ${parsed['max_price']:g}"
+            )
+        return "No matching listings. You could " + ", or ".join(suggestions) + "."
+
+    def handle_search_results(results: list[dict], parsed: dict) -> bool:
+        """Save the branch outcome; return False when the plan should stop."""
+        if not results:
+            session["error"] = nothing_found_message(parsed)
+            return False
+
+        session["selected_item"] = results[0]
+        return True
+
+    steps = 0
+
+    def check_next_step() -> None:
+        nonlocal steps      
+        #this would not create another variable 'steps' inside of the func but instead modify the outer variable 'steps'
+        steps += 1
+        trace.check_iterations(steps)
+        # this is the guard that prevents the maximum iterations going above the max iterations set in config file ; 
+
+    # Each check marks a step in the plan. If search has no matches, return
+    # before calling tools that require a selected listing.
+    check_next_step()
+    parsed = parse_query(query)
+    session["parsed"] = parsed
+
+    check_next_step()
+    results = search_listings(
+        parsed["description"], parsed["size"], parsed["max_price"]
+    )
+    session["search_results"] = results
+
+    if not handle_search_results(results, parsed):
+        return session
+
+    check_next_step()
+    session["outfit_suggestion"] = suggest_outfit(
+        session["selected_item"], session["wardrobe"]
+    )
+
+    check_next_step()
+    session["fit_card"] = create_fit_card(
+        session["outfit_suggestion"], session["selected_item"]
+    )
     return session
 
 
