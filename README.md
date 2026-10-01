@@ -192,15 +192,15 @@ Graphic Tee — 2003 Tour Bootleg Style is listed for $24 on depop.
 
 **Moment 1**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* Help me fill in the README's Tool Inventory, branch rule, and standalone tool-test commands.
+- *What came back:* A draft describing each tool's inputs and outputs, when it has nothing to return, and the empty-search branch.
+- *What I changed:* I checked the descriptions against the function signatures and updated the sample section with the commands and outputs I could run. 
 
 **Moment 2**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* Help implement the three tools in `tools.py` and keep them simple enough to test one at a time.
+- *What came back:* A local listing search plus model prompts for outfit suggestions and fit-card captions. The first search version matched a request for vintage jeans to a knit vest because it counted incidental words.
+- *What I changed:* I asked for the search to require all meaningful query words to match the listing title, category, or style tags. 
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
