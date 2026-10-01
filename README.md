@@ -59,24 +59,24 @@
 
 ### `search_listings`
 
-- **What it does:**
-- **Inputs:** <!-- name and type each: `max_price` (float), not "a price" -->
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Loads the listing data, filters by optional size and price, then matches meaningful query words against each listing's title, category, and style tags.
+- **Inputs:** `description` (str), `size` (str or None), `max_price` (float or None).
+- **Returns:** A list of matching listing dicts, each with `id`, `title`, `description`, `category`, `style_tags`, `size`, `condition`, `price`, `colors`, `brand`, and `platform`, with lower-priced matches first when keyword matches tie.
+- **When it has nothing:** Returns an empty list (`[]`).
 
 ### `suggest_outfit`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Uses the model adapter to suggest one or two outfits for a thrifted listing.
+- **Inputs:** `new_item` (listing dict), `wardrobe` (dict with an `items` list).
+- **Returns:** A string with one or two styling suggestions, using wardrobe pieces when available.
+- **When it has nothing:** An empty wardrobe gets general styling advice; if the model cannot be reached, the adapter raises `ModelUnavailable`.
 
 ### `create_fit_card`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Uses the model adapter to write a social caption for a thrifted item and its outfit suggestion.
+- **Inputs:** `outfit` (str), `new_item` (listing dict).
+- **Returns:** A two-to-four sentence caption mentioning the item, price, platform, and outfit vibe.
+- **When it has nothing:** For a blank outfit string, returns a short description with the item title, price, and platform without calling the model.
 
 ---
 
@@ -93,13 +93,13 @@
      The grader checks your code against what you claim here, so the file and
      function have to be real. -->
 
-**Branch rule:**
+**Branch rule:** If `search_listings` returns an empty list, put a message in the session and stop. Otherwise, take the first result and go to `suggest_outfit`.
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**How the query is parsed:** `run_agent()` uses regular expressions to extract a common clothing size and a price ceiling, then removes those constraints and request filler from the description.
 
-**What moves through the session:** <!-- which fields, in what order -->
+**What moves through the session:** `query` → `parsed` → `search_results` → `selected_item` → `outfit_suggestion` → `fit_card`; `wardrobe` is passed to outfit suggestions and `error` records an early stop.
 
 ---
 
@@ -113,8 +113,29 @@
 **One full query**
 
 ```
-$ python app.py ask '...'
+$ python app.py ask 'vintage jeans of medium size and under $40'
+Found:    Vintage Levi's 501 Jeans — Medium Wash — $38.0 on depop
 
+  Outfit:   Here are two wearable, everyday outfits using the vintage Levi's 501s and pieces from your wardrobe:
+
+### Outfit 1: Effortless Casual Streetwear
+This look plays on classic, easy-going proportions by pairing the fitted vintage straight-leg jeans with a cozy, oversized layer. 
+
+*   **Top:** Oversized grey crewneck sweatshirt (grey, charcoal) layered over the White ribbed tank top (white) peeking out the bottom.
+*   **Shoes:** Chunky white sneakers (white)
+*   **Accessories:** Black crossbody bag (black)
+
+### Outfit 2: Elevated Vintage Denim
+A nod to classic Americana with a double-denim moment, broken up by crisp neutrals and finished with rugged footwear.
+
+*   **Top:** White ribbed tank top (white) tucked into the jeans, layered under the Vintage black denim jacket (black).
+*   **Waist:** Brown leather belt (brown)
+*   **Shoes:** Black combat boots (black)
+*   **Accessories:** Black crossbody bag (black)
+
+  Fit card: Scored these Vintage Levi's 501 Jeans for just $38, and they have the absolute best lived-in fading at the knees. They're giving major effortless streetwear energy when styled with an oversized grey crewneck and chunky sneakers. Snag them now over on my depop before I changemy mind and keep them!
+
+2 model calls this session, 533 prompt + 290 output tokens
 ```
 
 **The three tools, tested one at a time**
@@ -122,15 +143,39 @@ $ python app.py ask '...'
 ```
 $ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
 
+OUTPUT:
+[{'id': 'lst_002', 'title': 'Y2K Baby Tee — Butterfly Print', 'description': 'Super cute early 2000s baby tee with butterfly graphic. Fitted crop length. Tag says medium but fits like a small.', 'category': 'tops', 'style_tags': ['y2k', 'vintage', 'graphic tee', 'cottagecore'], 'size': 'S/M', 'condition': 'excellent', 'price': 18.0, 'colors': ['white', 'pink', 'purple'], 'brand': None, 'platform': 'depop'}, {'id': 'lst_033', 'title': 'Vintage Band Tee — Faded Grey', 'description': 'Faded grey band-style tee with distressed graphic. Crew neck. Fits boxy. Well-loved but no holes or major damage.', 'category': 'tops', 'style_tags': ['vintage', 'grunge', 'band tee', 'graphic tee', 'streetwear'], 'size': 'L', 'condition': 'fair', 'price': 19.0, 'colors': ['grey', 'charcoal'], 'brand': None, 'platform': 'depop'}, {'id': 'lst_006', 'title': 'Graphic Tee — 2003 Tour Bootleg Style', 'description': 'Vintage-style bootleg tee with faded graphic. Slightly boxy fit. 100% cotton, soft and worn-in.', 'category': 'tops', 'style_tags': ['graphic tee', 'vintage', 'grunge', 'streetwear', 'band tee'], 'size': 'L', 'condition': 'good', 'price': 24.0, 'colors': ['black'], 'brand': None, 'platform': 'depop'}]
 ```
 
 ```
-$ python -c "from tools import suggest_outfit; ..."
+python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; item = load_listings()[5]; print(suggest_outfit(item, get_example_wardrobe()))"
+
+OUTPUT:
+### Outfit 1: High-Contrast Streetwear (Casual & Edgy)
+This look leans into the vintage, boxy fit of the tee by pairing it with relaxed denim and layering it for texture and warmth. 
+
+*   **Top:** Graphic Tee (worn untucked)
+*   **Layer:** Oversized grey crewneck sweatshirt (worn draped over the shoulders or layered underneath if it's cold)
+*   **Bottoms:** Baggy straight-leg jeans, dark wash
+*   **Footwear:** Chunky white sneakers (to add a 90s contrast against the dark top and bottom)
+*   **Accessories:** Black crossbody bag
+
+### Outfit 2: Monochrome Grunge (Tough & Effortless)
+This outfit plays with all-black tones and contrasting textures—combining the soft, faded cotton of the tee with structured denim and heavy boots.
+
+*   **Top:** Graphic Tee (tuck it in slightly, or leave it loose)
+*   **Layer:** Vintage black denim jacket
+*   **Bottoms:** Baggy straight-leg jeans, dark wash 
+*   **Footwear:** Black combat boots (let the jeans pool slightly over the tops of the boots)
+*   **Accessories:** Brown leather belt (adds a subtle vintage break in the monochrome look)
 
 ```
 
 ```
-$ python -c "from tools import create_fit_card; ..."
+python -c "from tools import create_fit_card; from utils.data_loader import load_listings; item = load_listings()[5]; print(create_fit_card('', item))"
+
+OUTPUT:
+Graphic Tee — 2003 Tour Bootleg Style is listed for $24 on depop.
 
 ```
 

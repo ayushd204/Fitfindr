@@ -10,8 +10,8 @@ can't tell which layer is lying to you.
     suggest_outfit(new_item, wardrobe)             → str
     create_fit_card(outfit, new_item)              → str
 
-All three are stubs right now. They run and they do nothing — that's the
-starting position and it's deliberate.
+Each tool can be run and checked on its own before it is connected to the
+planning loop.
 
 ⚠️ Before you write any of them, fill in the **Tool Inventory** section of your
 README (Milestone 2). Four lines per tool: what it does, each input with its
@@ -20,7 +20,9 @@ That last line is what your loop branches on. "Returns a list" earns nothing —
 the description has to say what is *in* the list.
 """
 
-import config  # noqa: F401 — you'll use this in search_listings
+import re
+
+import config
 from generate import generate
 from utils.data_loader import load_listings
 
@@ -70,16 +72,49 @@ def search_listings(
     TODO:
         1. Load every listing with load_listings().
         2. Filter by max_price and by size, when each is provided.
-        3. Score what's left by keyword overlap with `description`.
-        4. Drop anything scoring zero.
-        5. Sort by score, highest first, and return the listing dicts —
-           at most config.SEARCH_RESULT_LIMIT of them.
+        3. Match the meaningful description words against each listing's title,
+           category, and style tags.
+        4. Drop listings missing any of those words.
+        5. Sort by keyword score, then price, and respect the result limit.
 
     Test it from a terminal before you move on:
         python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
     """
-    # TODO: replace this with your implementation
-    return []
+    listings = load_listings()
+    stop_words = {"a", "an", "and", "for", "in", "of", "the", "to"}
+    keywords = set(re.findall(r"[a-z0-9]+", description.lower())) - stop_words
+    if not keywords:
+        return []
+    matches = []
+
+    for listing in listings:
+        if max_price is not None and listing["price"] > max_price:
+            continue
+
+        if size is not None:
+            requested_sizes = re.findall(
+                r"(?<![A-Z0-9])(?:XXS|XXL|XS|XL|S|M|L)(?![A-Z0-9])",
+                size.upper(),
+            )
+            listing_sizes = re.findall(
+                r"(?<![A-Z0-9])(?:XXS|XXL|XS|XL|S|M|L)(?![A-Z0-9])",
+                listing["size"].upper(),
+            )
+            if not set(requested_sizes).intersection(listing_sizes):
+                continue
+
+        searchable_text = " ".join(
+            [listing["title"], listing["category"], *listing["style_tags"]]
+        )
+        searchable_words = set(re.findall(r"[a-z0-9]+", searchable_text.lower()))
+        matched_keywords = keywords.intersection(searchable_words)
+        # Every meaningful query word must match. This prevents a listing
+        # tagged only "vintage" from matching a request for "vintage jeans".
+        if matched_keywords == keywords:
+            matches.append((len(matched_keywords), listing))
+
+    matches.sort(key=lambda result: (-result[0], result[1]["price"]))
+    return [listing for _, listing in matches[:config.SEARCH_RESULT_LIMIT]]
 
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
@@ -112,8 +147,34 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
     """
-    # TODO: replace this with your implementation
-    return ""
+    item_details = (
+        f"Item: {new_item['title']}\n"
+        f"Description: {new_item['description']}\n"
+        f"Category: {new_item['category']}\n"
+        f"Colors: {', '.join(new_item['colors'])}\n"
+        f"Style tags: {', '.join(new_item['style_tags'])}"
+    )
+
+    wardrobe_items = wardrobe.get("items", [])
+    if wardrobe_items:
+        owned_pieces = "\n".join(
+            f"- {item['name']} ({', '.join(item.get('colors', []))})"
+            for item in wardrobe_items
+        )
+        prompt = (
+            f"Suggest one or two wearable outfits using this thrifted item and "
+            f"pieces from the user's wardrobe. Name the wardrobe pieces you use.\n\n"
+            f"{item_details}\n\nUser's wardrobe:\n{owned_pieces}"
+        )
+    else:
+        prompt = (
+            f"Give one or two general styling ideas for this thrifted item. "
+            f"The user has not added any wardrobe items, so suggest versatile "
+            f"pieces they could pair with it without implying they already own them.\n\n"
+            f"{item_details}"
+        )
+
+    return generate(prompt)
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
@@ -152,5 +213,17 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
     """
-    # TODO: replace this with your implementation
-    return ""
+    if not outfit.strip():
+        return f"{new_item['title']} is listed for ${new_item['price']:g} on {new_item['platform']}."
+
+    prompt = (
+        "Write a natural, two-to-four sentence social caption about this thrift find. "
+        "Mention the item's title, price, and platform exactly once each, and make "
+        "the vibe specific. Do not invent details.\n\n"
+        f"Item: {new_item['title']}\n"
+        f"Price: ${new_item['price']:g}\n"
+        f"Platform: {new_item['platform']}\n"
+        f"Description: {new_item['description']}\n"
+        f"Outfit idea: {outfit}"
+    )
+    return generate(prompt)
